@@ -42,6 +42,14 @@ done
 
 # Version should be something like 0.9.0-beta or 0.9.0. See http://semver.org.
 VERSION=$1
+
+OLDIFS=$IFS
+IFS="."
+PRE_VERSION=($VERSION)
+IFS=$OLDIFS
+
+PRE_VERSION="${PRE_VERSION[0]}.${PRE_VERSION[1]}.$((PRE_VERSION[2] + 1))-pre"
+
 BRANCH=${BRANCH=master}
 
 # Name used for directory and tar/zip file of prebuilt version
@@ -150,25 +158,55 @@ for REPO in $ALL_REPOS; do
 	set -e
 
 	REVISION=$(git log -n 1 --format='%h')
-	VERSION_FILES=package.json
+	VERSION_FILES=
+
+	if [ -f "package.json" ]; then
+		VERSION_FILES=package.json
+	fi
 
 	if [ $REPO == "dojo" ]; then
-		VERSION_FILES="$VERSION_FILES _base/kernel.js"
+		# Dojo 1.7+
+		if [ -f "_base/kernel.js" ]; then
+			VERSION_FILES="$VERSION_FILES _base/kernel.js"
+		# Dojo 1.6-
+		elif [ -f "_base/_loader/bootstrap.js" ]; then
+			VERSION_FILES="$VERSION_FILES _base/_loader/bootstrap.js"
+		fi
 	fi
 
 	if [ $REPO == "util" ]; then
-		VERSION_FILES="doh/package.json"
+		for FILENAME in doh/package.json doh/_rhinoRunner.js doh/mobileRunner.html doh/runner.html doh/_nodeRunner.js; do
+			if [ -f $FILENAME ]; then
+				VERSION_FILES="$VERSION_FILES $FILENAME"
+			fi
+		done
+
+		if [ -f "build/version.js" ]; then
+			VERSION_FILES="$VERSION_FILES build/version.js"
+		fi
 	fi
 
-	for FILENAME in $VERSION_FILES; do
-		java -jar $UTIL_DIR/../shrinksafe/js.jar $UTIL_DIR/changeVersion.js $VERSION $REVISION $FILENAME
-	done
+	if [ -n "$VERSION_FILES" ]; then
+		for FILENAME in $VERSION_FILES; do
+			java -jar $UTIL_DIR/../shrinksafe/js.jar $UTIL_DIR/changeVersion.js $VERSION $REVISION $FILENAME
+		done
 
-	# These will be pushed later, once it is confirmed the build was successful, in order to avoid polluting
-	# the origin repository with failed build commits and tags
-	git commit -m "Updating metadata for $VERSION" $VERSION_FILES
+		# These will be pushed later, once it is confirmed the build was successful, in order to avoid polluting
+		# the origin repository with failed build commits and tags
+		git commit -m "Updating metadata for $VERSION" $VERSION_FILES
+	fi
 
 	git tag -a -m "Release $VERSION" $VERSION
+
+	if [ -n "$VERSION_FILES" ]; then
+		for FILENAME in $VERSION_FILES; do
+			java -jar $UTIL_DIR/../shrinksafe/js.jar $UTIL_DIR/changeVersion.js $PRE_VERSION "" $FILENAME
+		done
+
+		git commit -m "Updating source version to $PRE_VERSION" $VERSION_FILES
+	fi
+
+	git checkout $VERSION
 done
 
 cd $ROOT_DIR
@@ -176,8 +214,8 @@ cd $ROOT_DIR
 # Archive all source except for demos, which are provided separately so people do not have to download them
 # with the source
 echo -n "Archiving source..."
-$zip $OUTPUT_DIR/$SOURCE_NAME.zip $SOURCE_NAME/ -x "*/.git" -x "*/.git/*" -x "$SOURCE_NAME/demos/"
-$tar --exclude="$SOURCE_NAME/demos/" --exclude-vcs -zcf $OUTPUT_DIR/$SOURCE_NAME.tar.gz $SOURCE_NAME/
+$zip $OUTPUT_DIR/$SOURCE_NAME.zip $SOURCE_NAME/ -x "*/.git" -x "*/.git/*" -x "$SOURCE_NAME/demos/*"
+$tar --exclude="$SOURCE_NAME/demos" --exclude-vcs -zcf $OUTPUT_DIR/$SOURCE_NAME.tar.gz $SOURCE_NAME/
 echo "Done"
 
 # Temporarily rename $SOURCE_NAME ($SOURCE_DIR) to $BUILD_NAME to archive demos backwards-compatibly
@@ -250,7 +288,15 @@ if [ $CDN ]; then
 	unset TMPFILE EXITCODE
 
 	cd $SOURCE_BUILD_DIR
-	./build.sh action=release profile=standard profile=cdn version=$VERSION releaseName=$CDN_NAME cssOptimize=comments.keepLines optimize=closure layerOptimize=closure stripConsole=normal copyTests=false mini=true
+
+	# Dojo 1.7+
+	if [ -f "profiles/cdn.profile.js" ]; then
+		./build.sh action=release profile=standard profile=cdn version=$VERSION releaseName=$CDN_NAME cssOptimize=comments.keepLines optimize=closure layerOptimize=closure stripConsole=normal copyTests=false mini=true
+	# Dojo 1.6
+	else
+		java -classpath ../shrinksafe/js.jar:../shrinksafe/shrinksafe.jar org.mozilla.javascript.tools.shell.Main build.js profile=standard version=$VERSION releaseName=$CDN_NAME cssOptimize=comments.keepLines optimize=shrinksafe layerOptimize=shrinksafe stripConsole=normal copyTests=false mini=true action=release loader=xdomain xdDojoPath="//ajax.googleapis.com/ajax/libs/dojo/$VERSION" xdDojoScopeName=window[\(typeof\(djConfig\)\!\=\"undefined\"\&\&djConfig.scopeMap\&\&djConfig.scopeMap[0][1]\)\|\|\"dojo\"]
+	fi
+
 	mv $SOURCE_RELEASE_DIR/$CDN_NAME $CDN_OUTPUT_DIR
 	rmdir $SOURCE_RELEASE_DIR
 	echo "Done"
