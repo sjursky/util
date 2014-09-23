@@ -87,8 +87,8 @@ define([
 			var dest = resource.dest,
 				src = resource.src,
 				srcReferencePath = fileUtils.getFilepath(checkSlashes(src)),
-				text = resource.text;
-			text = text.replace(/^\uFEFF/, ''); // remove BOM
+				text = resource.text,
+				imports = [];
 			text = removeComments(text, src);
 			text = text.replace(cssImportRegExp, function(fullMatch, urlStart, importUrl, urlEnd, mediaTypes){
 				importUrl = checkSlashes(cleanCssUrlQuotes(importUrl));
@@ -138,7 +138,7 @@ define([
 				return importContents.replace(cssUrlRegExp, function(fullMatch, urlMatch){
 					var fixedUrl = checkSlashes(cleanCssUrlQuotes(urlMatch)),
 						queryString = "",
-						queryStart = fixedUrl.indexOf("?");
+						queryStart = fixedUrl.search(/[?#]/);
 					if(queryStart > 0){
 						queryString = fixedUrl.slice(queryStart);
 						fixedUrl = fixedUrl.slice(0, queryStart);
@@ -157,6 +157,16 @@ define([
 					return fullMatch;
 				});
 			});
+
+			//Hoist imports to maintain valid CSS
+			text = text.replace(cssImportRegExp, function(fullMatch){
+				imports.push(fullMatch);
+				return "";
+			});
+
+			if(imports.length) {
+				text = imports.join("\n") + "\n" + text;
+			}
 
 			if(/keepLines/i.test(bc.cssOptimize)){
 				// remove multiple empty lines.
