@@ -49,6 +49,10 @@ define([
 			throw new Error("'comments' option is not supported by uglify optimizer.");
 		}
 
+		//LZ,AR: use ASCII only to prevent problems with special chracters that sometimes occur in chrome 41
+		options.gen_options = options.gen_options || {};
+		options.gen_options.ascii_only = true;
+
 		var handleResult = function(data){
 			try{
 				if(data.error){
