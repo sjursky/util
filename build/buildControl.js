@@ -338,6 +338,15 @@ define([
 		require.computeAliases(bc.aliases, (bc.aliasesMap = []));
 		require.computeMapProg(bc.paths, (bc.pathsMapProg = []));
 
+		bc.mapProgs = [];
+		require.computeMapProg(bc.map, bc.mapProgs);
+		bc.mapProgs.forEach(function(item){
+			item[1] = require.computeMapProg(item[1], []);
+			if(item[0]=="*"){
+				bc.mapProgs.star = item;
+			}
+		});
+
 		// add some methods to bc to help with resolving AMD module info
 		bc.srcModules = {};
 		bc.destModules = {};
@@ -347,9 +356,8 @@ define([
 		};
 
 		bc.getSrcModuleInfo = function(mid, referenceModule, ignoreFileType){
-			// notice that aliases and paths are applied, but map is not (and never will be)
 			if(ignoreFileType){
-				var result = require.getModuleInfo(mid+"/x", referenceModule, bc.packages, bc.srcModules, bc.basePath + "/", [], bc.pathsMapProg, bc.aliasesMap, true);
+				var result = require.getModuleInfo(mid+"/x", referenceModule, bc.packages, bc.srcModules, bc.basePath + "/", bc.mapProgs, bc.pathsMapProg, bc.aliasesMap, true);
 				result.mid = trimLastChars(result.mid, 2);
 				if(result.pid!==0){
 					// trim /x.js
@@ -357,7 +365,7 @@ define([
 				}
 				return result;
 			}else{
-				return require.getModuleInfo(mid, referenceModule, bc.packages, bc.srcModules, bc.basePath + "/", [], bc.pathsMapProg, bc.aliasesMap, true);
+				return require.getModuleInfo(mid, referenceModule, bc.packages, bc.srcModules, bc.basePath + "/", bc.mapProgs, bc.pathsMapProg, bc.aliasesMap, true);
 			}
 		};
 
@@ -376,6 +384,36 @@ define([
 				return require.getModuleInfo(mid, referenceModule, bc.destPackages, bc.destModules, bc.destBasePath + "/", [], [], [], true);
 			}
 		};
+		
+		bc.getAmdModule = function(
+				mid,
+				referenceModule
+			){
+				var match = mid.match(/^([^\!]+)\!(.*)$/);
+				if(match){
+					var pluginModuleInfo = bc.getSrcModuleInfo(match[1], referenceModule),
+						pluginModule = pluginModuleInfo &&	bc.amdResources[pluginModuleInfo.mid],
+						pluginId = pluginModule && pluginModule.mid,
+						pluginProc = bc.plugins[pluginId];
+					if(!pluginModule){
+						return 0;
+					}else if(!pluginProc){
+						if(!pluginModule.noBuildResolver){
+							bc.log("missingPluginResolver", ["module", referenceModule.mid, "plugin", pluginId]);
+						}
+						return pluginModule;
+					}else{
+						// flatten the list of modules returned from the plugin
+						var modules = [].concat(pluginProc.start(match[2], referenceModule, bc));
+						return modules.concat.apply([], modules);
+					}
+				}else{
+					var moduleInfo = bc.getSrcModuleInfo(mid, referenceModule),
+						module = moduleInfo && bc.amdResources[moduleInfo.mid];
+					return module;
+				}
+			}
+		
 	})();
 
 
@@ -584,7 +622,8 @@ define([
 				startTimestamp:1,
 				staticHasFeatures:1,
 				stripConsole:1,
-				trees:1
+				trees:1,
+				useSourceMaps:1
 			};
 			for(var p in toDump){
 				toDump[p] = bc[p];
