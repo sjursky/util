@@ -36,7 +36,9 @@ function factory(uglify, fs){
 
 			if (useSourceMaps) {
 				output += "//# sourceMappingURL=" + dest.split("/").pop() + ".map";
-				fs.writeFile(dest + ".map", gen_options.source_map.toString(), "utf-8");
+				fs.writeFile(dest + ".map", gen_options.source_map.toString(), "utf-8",function(err){
+					if(err) { console.debug("error writing map file", err); }
+				});
 			}
 
 			return output;
